@@ -1,13 +1,22 @@
 from datetime import datetime, timezone
 
 from django.http import HttpResponseRedirect, HttpResponseNotAllowed
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, resolve_url, redirect
 from django.core.paginator import Paginator
-from django.views.generic import UpdateView, CreateView, DeleteView, DetailView, ListView, TemplateView
+from django.core.exceptions import PermissionDenied
+from django.views.generic import UpdateView, CreateView, DeleteView, DetailView, ListView, TemplateView, RedirectView
 from django.contrib.auth import get_user
+from django.contrib.auth.decorators import login_required
+from django.utils.decorators import method_decorator
 
 from .models import Category, Comment, Post, User
 from .forms import ProfileForm, CommentForm, PostForm
+
+
+@method_decorator(login_required, name='dispatch')
+class YourProfile(RedirectView):
+    def get_redirect_url(self, *args, **kwargs):
+        return resolve_url('blog:profile', get_user(self.request).username)
 
 
 class Profile(TemplateView):
@@ -16,8 +25,8 @@ class Profile(TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        username = self.kwargs['username']
         cur_user = get_user(self.request)
+        username = self.kwargs.get('username') or cur_user.username
 
         if cur_user.username == username:
             user = cur_user
@@ -37,6 +46,7 @@ class Profile(TemplateView):
         return context
 
 
+@method_decorator(login_required, name='dispatch')
 class EditProfile(UpdateView):
     template_name = 'blog/user.html'
     form_class = ProfileForm
@@ -73,6 +83,7 @@ class CategoryPosts(DetailView):
         return context
 
 
+@method_decorator(login_required, name='dispatch')
 class CreateComment(CreateView):
     form_class = CommentForm
     success_url = '../'
@@ -88,6 +99,7 @@ class CreateComment(CreateView):
         return HttpResponseNotAllowed(('POST',))
 
 
+@method_decorator(login_required, name='dispatch')
 class EditComment(UpdateView):
     template_name = 'blog/comment.html'
     model = Comment
@@ -95,8 +107,29 @@ class EditComment(UpdateView):
     pk_url_kwarg = 'comment_id'
     success_url = '../../'
 
+    def get_queryset(self):
+        return super().get_queryset().filter(post=get_object_or_404(Post, pk=self.kwargs['post_id']))
 
-class DeleteComment(DeleteView, EditComment): ...
+    def get_object(self, queryset=None):
+        comment = super().get_object(queryset)
+        if comment.author != get_user(self.request):
+            raise PermissionDenied
+        return comment
+
+
+@method_decorator(login_required, name='dispatch')
+class DeleteComment(DeleteView):
+    template_name = 'blog/comment.html'
+    model = Comment
+    pk_url_kwarg = 'comment_id'
+    context_object_name = 'comment'
+    success_url = '../../'
+
+    def get_object(self, queryset=None):
+        comment = super().get_object(queryset)
+        if comment.author != get_user(self.request):
+            raise PermissionDenied
+        return comment
 
 
 class PostDetail(DetailView):
@@ -112,6 +145,7 @@ class PostDetail(DetailView):
         return context
 
 
+@method_decorator(login_required, name='dispatch')
 class CreatePost(CreateView):
     template_name = 'blog/create.html'
     form_class = PostForm
@@ -137,6 +171,17 @@ class EditPost(UpdateView):
     form_class = PostForm
     pk_url_kwarg = 'post_id'
     success_url = '../'
+
+    def get_object(self, queryset=None):
+        obj = super().get_object(queryset)
+        if obj.author != get_user(self.request):
+            raise PermissionDenied
+        return obj
+
+    def dispatch(self, request, *args, **kwargs):
+        if get_user(request).is_anonymous:
+            return redirect('../')
+        return super().dispatch(request, *args, **kwargs)
 
 
 class DeletePost(DeleteView, EditPost):
