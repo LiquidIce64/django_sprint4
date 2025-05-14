@@ -58,25 +58,21 @@ def index(request):
     return render(request, template_name, context)
 
 
-def category_posts(request, category_slug):
+class CategoryPosts(DetailView):
     template_name = 'blog/category.html'
+    model = Category
+    slug_url_kwarg = 'category_slug'
+    context_object_name = 'category'
+    queryset = Category.objects.filter(is_published=True)
 
-    category = get_object_or_404(
-        Category,
-        slug=category_slug,
-        is_published=True
-    )
-
-    posts = category.posts.select_related().filter(
-        is_published=True,
-        pub_date__lte=datetime.now(timezone.utc)
-    )
-
-    context = {
-        'category': category,
-        'page_obj': Paginator(posts, 10).get_page(request.GET.get("page"))
-    }
-    return render(request, template_name, context)
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        posts = self.object.posts.select_related().filter(
+            is_published=True,
+            pub_date__lte=datetime.now(timezone.utc)
+        )
+        context['page_obj'] = Paginator(posts, 10).get_page(self.request.GET.get("page"))
+        return context
 
 
 class CreateComment(CreateView):

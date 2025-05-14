@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-0hx=xw$ono997!426^o_os5(b322x6i7kflz_*g^tvpqn7y!@g
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -69,6 +69,7 @@ TEMPLATES = [
         },
     },
 ]
+TEMPLATES_DIR = BASE_DIR / 'templates'
 
 WSGI_APPLICATION = 'blogicum.wsgi.application'
 
