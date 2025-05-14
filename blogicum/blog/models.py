@@ -49,6 +49,12 @@ class Location(BaseModel):
 class Post(BaseModel):
     title = models.CharField('Заголовок', max_length=256)
     text = models.TextField('Текст')
+    image = models.ImageField(
+        'Изображение',
+        null=True,
+        blank=True,
+        upload_to='post_images/',
+    )
     pub_date = models.DateTimeField(
         'Дата и время публикации',
         help_text='Если установить дату и время в будущем \
@@ -83,3 +89,27 @@ class Post(BaseModel):
 
     def __str__(self):
         return self.title
+
+
+class Comment(BaseModel):
+    text = models.TextField('Текст')
+    author = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='comments',
+        verbose_name='Автор комментария'
+    )
+    post = models.ForeignKey(
+        Post,
+        on_delete=models.CASCADE,
+        related_name='comments',
+        verbose_name='Публикация'
+    )
+
+    class Meta:
+        ordering = ('-created_at',)
+        verbose_name = 'комментарий'
+        verbose_name_plural = 'Комментарии'
+
+    def __str__(self):
+        return self.text

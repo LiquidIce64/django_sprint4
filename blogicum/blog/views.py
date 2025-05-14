@@ -1,34 +1,60 @@
 from datetime import datetime, timezone
-from django.shortcuts import render, get_object_or_404
 
-from .models import Category, Post
+from django.http import HttpResponseRedirect, HttpResponseNotAllowed
+from django.shortcuts import render, get_object_or_404, redirect
+from django.core.paginator import Paginator
+from django.views.generic import UpdateView, CreateView, DeleteView, DetailView
+from django.contrib.auth import get_user
+
+from .models import Category, Comment, Post, User
+from .forms import ProfileForm, CommentForm, PostForm
+
+
+def profile(request, username=None):
+    if username is None:
+        username = get_user(request).username
+        return redirect('blog:profile', username)
+
+    template_name = 'blog/profile.html'
+
+    cur_user = get_user(request)
+    if cur_user.username == username:
+        user = cur_user
+        posts = user.posts.all()
+    else:
+        user = get_object_or_404(User, username=username)
+        posts = user.posts.filter(
+            is_published=True,
+            category__is_published=True,
+            pub_date__lte=datetime.now(timezone.utc)
+        )
+
+    context = {
+        'profile': user,
+        'page_obj': Paginator(posts, 10).get_page(request.GET.get("page"))
+    }
+    return render(request, template_name, context)
+
+
+class EditProfile(UpdateView):
+    template_name = 'blog/user.html'
+    form_class = ProfileForm
+    success_url = '/profile/'
+
+    def get_object(self, queryset=None):
+        return get_user(self.request)
 
 
 def index(request):
     template_name = 'blog/index.html'
 
-    posts = Post.objects.all().select_related('category').filter(
-        is_published=True,
-        category__is_published=True,
-        pub_date__lte=datetime.now(timezone.utc)
-    )[:5]
-
-    context = {'post_list': posts}
-    return render(request, template_name, context)
-
-
-def post_detail(request, post_id):
-    template_name = 'blog/detail.html'
-
-    post = get_object_or_404(
-        Post,
-        pk=post_id,
+    posts = Post.objects.all().select_related().filter(
         is_published=True,
         category__is_published=True,
         pub_date__lte=datetime.now(timezone.utc)
     )
 
-    context = {'post': post}
+    context = {'page_obj': Paginator(posts, 10).get_page(request.GET.get("page"))}
     return render(request, template_name, context)
 
 
@@ -41,13 +67,83 @@ def category_posts(request, category_slug):
         is_published=True
     )
 
-    posts = category.posts.filter(
+    posts = category.posts.select_related().filter(
         is_published=True,
         pub_date__lte=datetime.now(timezone.utc)
     )
 
     context = {
         'category': category,
-        'post_list': posts
+        'page_obj': Paginator(posts, 10).get_page(request.GET.get("page"))
     }
     return render(request, template_name, context)
+
+
+class CreateComment(CreateView):
+    form_class = CommentForm
+    success_url = '../'
+
+    def form_valid(self, form):
+        comment = form.save(commit=False)
+        comment.author = get_user(self.request)
+        comment.post = get_object_or_404(Post, pk=self.kwargs['post_id'])
+        comment.save()
+        return HttpResponseRedirect(self.success_url)
+
+    def get(self, request, *args, **kwargs):
+        return HttpResponseNotAllowed(('POST',))
+
+
+class EditComment(UpdateView):
+    template_name = 'blog/comment.html'
+    model = Comment
+    form_class = CommentForm
+    pk_url_kwarg = 'comment_id'
+    success_url = '../../'
+
+
+class DeleteComment(DeleteView, EditComment): ...
+
+
+class PostDetail(DetailView):
+    template_name = 'blog/detail.html'
+    model = Post
+    pk_url_kwarg = 'post_id'
+    context_object_name = 'post'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['form'] = CommentForm()
+        context['comments'] = context['post'].comments.all().select_related('author')
+        return context
+
+
+class CreatePost(CreateView):
+    template_name = 'blog/create.html'
+    form_class = PostForm
+    success_url = '/profile/'
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        form.fields['pub_date'].required = False
+        return form
+
+    def form_valid(self, form):
+        post = form.save(commit=False)
+        post.author = get_user(self.request)
+        if post.pub_date is None:
+            post.pub_date = datetime.now(timezone.utc)
+        post.save()
+        return HttpResponseRedirect(self.success_url)
+
+
+class EditPost(UpdateView):
+    template_name = 'blog/create.html'
+    model = Post
+    form_class = PostForm
+    pk_url_kwarg = 'post_id'
+    success_url = '../'
+
+
+class DeletePost(DeleteView, EditPost):
+    success_url = '/profile/'

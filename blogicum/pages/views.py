@@ -1,11 +1,16 @@
 from django.shortcuts import render
 
 
-def about(request):
-    template_name = 'pages/about.html'
+def error404(request, exception):
+    template_name = 'pages/404.html'
     return render(request, template_name)
 
 
-def rules(request):
-    template_name = 'pages/rules.html'
+def error403(request, exception):
+    template_name = 'pages/403csrf.html'
+    return render(request, template_name)
+
+
+def error500(request):
+    template_name = 'pages/500.html'
     return render(request, template_name)
