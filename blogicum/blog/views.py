@@ -1,39 +1,40 @@
 from datetime import datetime, timezone
 
 from django.http import HttpResponseRedirect, HttpResponseNotAllowed
-from django.shortcuts import render, get_object_or_404, redirect
+from django.shortcuts import get_object_or_404
 from django.core.paginator import Paginator
-from django.views.generic import UpdateView, CreateView, DeleteView, DetailView
+from django.views.generic import UpdateView, CreateView, DeleteView, DetailView, ListView, TemplateView
 from django.contrib.auth import get_user
 
 from .models import Category, Comment, Post, User
 from .forms import ProfileForm, CommentForm, PostForm
 
 
-def profile(request, username=None):
-    if username is None:
-        username = get_user(request).username
-        return redirect('blog:profile', username)
-
+class Profile(TemplateView):
     template_name = 'blog/profile.html'
 
-    cur_user = get_user(request)
-    if cur_user.username == username:
-        user = cur_user
-        posts = user.posts.all()
-    else:
-        user = get_object_or_404(User, username=username)
-        posts = user.posts.filter(
-            is_published=True,
-            category__is_published=True,
-            pub_date__lte=datetime.now(timezone.utc)
-        )
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
 
-    context = {
-        'profile': user,
-        'page_obj': Paginator(posts, 10).get_page(request.GET.get("page"))
-    }
-    return render(request, template_name, context)
+        username = self.kwargs['username']
+        cur_user = get_user(self.request)
+
+        if cur_user.username == username:
+            user = cur_user
+            posts = user.posts.all()
+        else:
+            user = get_object_or_404(User, username=username)
+            posts = user.posts.select_related().filter(
+                is_published=True,
+                category__is_published=True,
+                pub_date__lte=datetime.now(timezone.utc)
+            )
+
+        context.update(
+            profile=user,
+            page_obj=Paginator(posts, 10).get_page(self.request.GET.get("page"))
+        )
+        return context
 
 
 class EditProfile(UpdateView):
@@ -45,17 +46,14 @@ class EditProfile(UpdateView):
         return get_user(self.request)
 
 
-def index(request):
+class Index(ListView):
     template_name = 'blog/index.html'
-
-    posts = Post.objects.all().select_related().filter(
+    paginate_by = 10
+    queryset = Post.objects.all().select_related().filter(
         is_published=True,
         category__is_published=True,
         pub_date__lte=datetime.now(timezone.utc)
     )
-
-    context = {'page_obj': Paginator(posts, 10).get_page(request.GET.get("page"))}
-    return render(request, template_name, context)
 
 
 class CategoryPosts(DetailView):
