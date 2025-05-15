@@ -4,7 +4,10 @@ from django.http import HttpResponseRedirect, HttpResponseNotAllowed, Http404
 from django.shortcuts import get_object_or_404, resolve_url, redirect
 from django.core.paginator import Paginator
 from django.core.exceptions import PermissionDenied
-from django.views.generic import UpdateView, CreateView, DeleteView, DetailView, ListView, TemplateView, RedirectView
+from django.views.generic import (
+    UpdateView, CreateView, DeleteView, DetailView,
+    ListView, TemplateView, RedirectView
+)
 from django.contrib.auth import get_user
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
@@ -39,9 +42,11 @@ class Profile(TemplateView):
                 pub_date__lte=datetime.now(timezone.utc)
             )
 
+        page = Paginator(posts, 10).get_page(self.request.GET.get("page"))
+
         context.update(
             profile=user,
-            page_obj=Paginator(posts, 10).get_page(self.request.GET.get("page"))
+            page_obj=page
         )
         return context
 
@@ -79,7 +84,8 @@ class CategoryPosts(DetailView):
             is_published=True,
             pub_date__lte=datetime.now(timezone.utc)
         )
-        context['page_obj'] = Paginator(posts, 10).get_page(self.request.GET.get("page"))
+        page = Paginator(posts, 10).get_page(self.request.GET.get("page"))
+        context['page_obj'] = page
         return context
 
 
@@ -108,7 +114,9 @@ class EditComment(UpdateView):
     success_url = '../../'
 
     def get_queryset(self):
-        return super().get_queryset().filter(post=get_object_or_404(Post, pk=self.kwargs['post_id']))
+        return super().get_queryset().filter(
+            post=get_object_or_404(Post, pk=self.kwargs['post_id'])
+        )
 
     def get_object(self, queryset=None):
         comment = super().get_object(queryset)
@@ -140,17 +148,24 @@ class PostDetail(DetailView):
 
     def get_object(self, queryset=None):
         obj = super().get_object(queryset)
-        if obj.author != get_user(self.request) and not (
-            obj.is_published and
-            obj.category.is_published and
-            obj.pub_date <= datetime.now(timezone.utc)
-        ): raise Http404
-        return obj
+        if obj.author == get_user(self.request) or\
+                obj.is_published and \
+                obj.category.is_published and \
+                obj.pub_date <= datetime.now(timezone.utc):
+            return obj
+        else:
+            raise Http404
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['form'] = CommentForm()
-        context['comments'] = context['post'].comments.all().select_related('author')
+
+        form = CommentForm()
+        comments = context['post'].comments.all().select_related('author')
+
+        context.update(
+            form=form,
+            comments=comments
+        )
         return context
 
 
