@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from django.http import HttpResponseRedirect, HttpResponseNotAllowed
+from django.http import HttpResponseRedirect, HttpResponseNotAllowed, Http404
 from django.shortcuts import get_object_or_404, resolve_url, redirect
 from django.core.paginator import Paginator
 from django.core.exceptions import PermissionDenied
@@ -138,6 +138,15 @@ class PostDetail(DetailView):
     pk_url_kwarg = 'post_id'
     context_object_name = 'post'
 
+    def get_object(self, queryset=None):
+        obj = super().get_object(queryset)
+        if obj.author != get_user(self.request) and not (
+            obj.is_published and
+            obj.category.is_published and
+            obj.pub_date <= datetime.now(timezone.utc)
+        ): raise Http404
+        return obj
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['form'] = CommentForm()
@@ -178,9 +187,15 @@ class EditPost(UpdateView):
             raise PermissionDenied
         return obj
 
+    def post(self, request, *args, **kwargs):
+        try:
+            return super().post(request, *args, **kwargs)
+        except PermissionDenied:
+            return redirect('blog:post_detail', self.kwargs['post_id'])
+
     def dispatch(self, request, *args, **kwargs):
         if get_user(request).is_anonymous:
-            return redirect('../')
+            return redirect('blog:post_detail', self.kwargs['post_id'])
         return super().dispatch(request, *args, **kwargs)
 
 
