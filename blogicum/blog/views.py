@@ -33,13 +33,23 @@ class Profile(TemplateView):
 
         if cur_user.username == username:
             user = cur_user
-            posts = user.posts.all()
+            posts = user.posts.all().prefetch_related(
+                'author',
+                'category',
+                'location',
+                'comments'
+            )
         else:
             user = get_object_or_404(User, username=username)
-            posts = user.posts.select_related().filter(
+            posts = user.posts.filter(
                 is_published=True,
                 category__is_published=True,
                 pub_date__lte=datetime.now(timezone.utc)
+            ).prefetch_related(
+                'author',
+                'category',
+                'location',
+                'comments'
             )
 
         page = Paginator(posts, 10).get_page(self.request.GET.get("page"))
@@ -64,10 +74,15 @@ class EditProfile(UpdateView):
 class Index(ListView):
     template_name = 'blog/index.html'
     paginate_by = 10
-    queryset = Post.objects.all().select_related().filter(
+    queryset = Post.objects.all().filter(
         is_published=True,
         category__is_published=True,
         pub_date__lte=datetime.now(timezone.utc)
+    ).prefetch_related(
+        'author',
+        'category',
+        'location',
+        'comments'
     )
 
 
@@ -80,9 +95,14 @@ class CategoryPosts(DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        posts = self.object.posts.select_related().filter(
+        posts = self.object.posts.filter(
             is_published=True,
             pub_date__lte=datetime.now(timezone.utc)
+        ).prefetch_related(
+            'author',
+            'category',
+            'location',
+            'comments'
         )
         page = Paginator(posts, 10).get_page(self.request.GET.get("page"))
         context['page_obj'] = page
@@ -133,6 +153,9 @@ class DeleteComment(DeleteView):
     context_object_name = 'comment'
     success_url = '../../'
 
+    def get_context_data(self, **kwargs):
+        return {'comment': self.get_object()}
+
     def get_object(self, queryset=None):
         comment = super().get_object(queryset)
         if comment.author != get_user(self.request):
@@ -145,6 +168,7 @@ class PostDetail(DetailView):
     model = Post
     pk_url_kwarg = 'post_id'
     context_object_name = 'post'
+    queryset = Post.objects.all().prefetch_related('comments')
 
     def get_object(self, queryset=None):
         obj = super().get_object(queryset)
@@ -160,7 +184,7 @@ class PostDetail(DetailView):
         context = super().get_context_data(**kwargs)
 
         form = CommentForm()
-        comments = context['post'].comments.all().select_related('author')
+        comments = context['post'].comments.all().prefetch_related('author')
 
         context.update(
             form=form,
@@ -214,5 +238,14 @@ class EditPost(UpdateView):
         return super().dispatch(request, *args, **kwargs)
 
 
-class DeletePost(DeleteView, EditPost):
+class DeletePost(DeleteView):
+    template_name = 'blog/create.html'
+    model = Post
+    pk_url_kwarg = 'post_id'
     success_url = '/profile/'
+
+    def get_object(self, queryset=None):
+        obj = super().get_object(queryset)
+        if obj.author != get_user(self.request):
+            raise PermissionDenied
+        return obj
