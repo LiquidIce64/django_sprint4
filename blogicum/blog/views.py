@@ -16,6 +16,18 @@ from .models import Category, Comment, Post, User
 from .forms import ProfileForm, CommentForm, PostForm
 
 
+def paginate(self, object_list):
+    return Paginator(object_list, 10).get_page(self.request.GET.get("page"))
+
+
+def filter_published(queryset):
+    return queryset.filter(
+        is_published=True,
+        pub_date__lte=datetime.now(timezone.utc),
+        category__is_published=True
+    )
+
+
 @method_decorator(login_required, name='dispatch')
 class YourProfile(RedirectView):
     def get_redirect_url(self, *args, **kwargs):
@@ -41,22 +53,16 @@ class Profile(TemplateView):
             )
         else:
             user = get_object_or_404(User, username=username)
-            posts = user.posts.filter(
-                is_published=True,
-                category__is_published=True,
-                pub_date__lte=datetime.now(timezone.utc)
-            ).prefetch_related(
+            posts = filter_published(user.posts).prefetch_related(
                 'author',
                 'category',
                 'location',
                 'comments'
             )
 
-        page = Paginator(posts, 10).get_page(self.request.GET.get("page"))
-
         context.update(
             profile=user,
-            page_obj=page
+            page_obj=paginate(self, posts)
         )
         return context
 
@@ -65,7 +71,9 @@ class Profile(TemplateView):
 class EditProfile(UpdateView):
     template_name = 'blog/user.html'
     form_class = ProfileForm
-    success_url = '/profile/'
+
+    def get_success_url(self):
+        return resolve_url('blog:profile', self.object.username)
 
     def get_object(self, queryset=None):
         return get_user(self.request)
@@ -74,11 +82,7 @@ class EditProfile(UpdateView):
 class Index(ListView):
     template_name = 'blog/index.html'
     paginate_by = 10
-    queryset = Post.objects.all().filter(
-        is_published=True,
-        category__is_published=True,
-        pub_date__lte=datetime.now(timezone.utc)
-    ).prefetch_related(
+    queryset = filter_published(Post.objects.all()).prefetch_related(
         'author',
         'category',
         'location',
@@ -95,31 +99,30 @@ class CategoryPosts(DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        posts = self.object.posts.filter(
-            is_published=True,
-            pub_date__lte=datetime.now(timezone.utc)
-        ).prefetch_related(
+        posts = filter_published(self.object.posts).prefetch_related(
             'author',
             'category',
             'location',
             'comments'
         )
-        page = Paginator(posts, 10).get_page(self.request.GET.get("page"))
-        context['page_obj'] = page
+        context['page_obj'] = paginate(self, posts)
         return context
 
 
 @method_decorator(login_required, name='dispatch')
 class CreateComment(CreateView):
     form_class = CommentForm
-    success_url = '../'
+
+    def get_success_url(self):
+        return resolve_url('blog:post_detail', self.object.post.pk)
 
     def form_valid(self, form):
         comment = form.save(commit=False)
         comment.author = get_user(self.request)
         comment.post = get_object_or_404(Post, pk=self.kwargs['post_id'])
         comment.save()
-        return HttpResponseRedirect(self.success_url)
+        self.object = comment
+        return HttpResponseRedirect(self.get_success_url())
 
     def get(self, request, *args, **kwargs):
         return HttpResponseNotAllowed(('POST',))
@@ -131,7 +134,9 @@ class EditComment(UpdateView):
     model = Comment
     form_class = CommentForm
     pk_url_kwarg = 'comment_id'
-    success_url = '../../'
+
+    def get_success_url(self):
+        return resolve_url('blog:post_detail', self.object.post.pk)
 
     def get_queryset(self):
         return super().get_queryset().filter(
@@ -151,7 +156,9 @@ class DeleteComment(DeleteView):
     model = Comment
     pk_url_kwarg = 'comment_id'
     context_object_name = 'comment'
-    success_url = '../../'
+
+    def get_success_url(self):
+        return resolve_url('blog:post_detail', self.object.post.pk)
 
     def get_context_data(self, **kwargs):
         return {'comment': self.get_object()}
@@ -172,7 +179,7 @@ class PostDetail(DetailView):
 
     def get_object(self, queryset=None):
         obj = super().get_object(queryset)
-        if obj.author == get_user(self.request) or\
+        if obj.author == get_user(self.request) or \
                 obj.is_published and \
                 obj.category.is_published and \
                 obj.pub_date <= datetime.now(timezone.utc):
@@ -197,7 +204,9 @@ class PostDetail(DetailView):
 class CreatePost(CreateView):
     template_name = 'blog/create.html'
     form_class = PostForm
-    success_url = '/profile/'
+
+    def get_success_url(self):
+        return resolve_url('blog:profile', get_user(self.request).username)
 
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
@@ -210,7 +219,7 @@ class CreatePost(CreateView):
         if post.pub_date is None:
             post.pub_date = datetime.now(timezone.utc)
         post.save()
-        return HttpResponseRedirect(self.success_url)
+        return HttpResponseRedirect(self.get_success_url())
 
 
 class EditPost(UpdateView):
@@ -218,7 +227,9 @@ class EditPost(UpdateView):
     model = Post
     form_class = PostForm
     pk_url_kwarg = 'post_id'
-    success_url = '../'
+
+    def get_success_url(self):
+        return resolve_url('blog:post_detail', self.object.pk)
 
     def get_object(self, queryset=None):
         obj = super().get_object(queryset)
@@ -242,7 +253,9 @@ class DeletePost(DeleteView):
     template_name = 'blog/create.html'
     model = Post
     pk_url_kwarg = 'post_id'
-    success_url = '/profile/'
+
+    def get_success_url(self):
+        return resolve_url('blog:profile', get_user(self.request).username)
 
     def get_object(self, queryset=None):
         obj = super().get_object(queryset)
