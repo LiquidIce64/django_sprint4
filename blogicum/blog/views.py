@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from django.db.models import Count
 from django.http import HttpResponseRedirect, HttpResponseNotAllowed, Http404
 from django.shortcuts import get_object_or_404, resolve_url, redirect
 from django.core.paginator import Paginator
@@ -28,6 +29,17 @@ def filter_published(queryset):
     )
 
 
+def prefetch_post_info(queryset):
+    return queryset.prefetch_related(
+        'author',
+        'category',
+        'location',
+        'comments'
+    ).annotate(
+        comment_count=Count("comments")
+    ).order_by('-pub_date')
+
+
 @method_decorator(login_required, name='dispatch')
 class YourProfile(RedirectView):
     def get_redirect_url(self, *args, **kwargs):
@@ -45,20 +57,12 @@ class Profile(TemplateView):
 
         if cur_user.username == username:
             user = cur_user
-            posts = user.posts.all().prefetch_related(
-                'author',
-                'category',
-                'location',
-                'comments'
-            )
+            posts = user.posts.all()
         else:
             user = get_object_or_404(User, username=username)
-            posts = filter_published(user.posts).prefetch_related(
-                'author',
-                'category',
-                'location',
-                'comments'
-            )
+            posts = filter_published(user.posts)
+
+        posts = prefetch_post_info(posts)
 
         context.update(
             profile=user,
@@ -82,11 +86,8 @@ class EditProfile(UpdateView):
 class Index(ListView):
     template_name = 'blog/index.html'
     paginate_by = 10
-    queryset = filter_published(Post.objects.all()).prefetch_related(
-        'author',
-        'category',
-        'location',
-        'comments'
+    queryset = prefetch_post_info(
+        filter_published(Post.objects.all())
     )
 
 
@@ -99,11 +100,8 @@ class CategoryPosts(DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        posts = filter_published(self.object.posts).prefetch_related(
-            'author',
-            'category',
-            'location',
-            'comments'
+        posts = prefetch_post_info(
+            filter_published(self.object.posts)
         )
         context['page_obj'] = paginate(self, posts)
         return context
